@@ -100,44 +100,44 @@ void check_cc(char *msg, int service, uint8_t *my_cc, uint8_t *buf)
 }
 
 
-// static size_t
-// curl_callback(void *contents, size_t size, size_t nmemb, void *userp)
-// {
-//   struct service_t* sv = userp;
-//   int count = size*nmemb;
+static size_t
+curl_callback(void *contents, size_t size, size_t nmemb, void *userp)
+{
+  struct service_t* sv = userp;
+  int count = size*nmemb;
 
-//   // Check input stream for CC errors
-//   int needed = 188 - sv->curl_bytes;
-//   int bytes_left = count;
-//   //  fprintf(stderr,"Processing %d bytes, needed=%d\n",count,needed);
-//   uint8_t *p = contents;
-//   while (bytes_left >= needed) {
-//     memcpy(&sv->curl_buf[sv->curl_bytes],p,needed);
-//     bytes_left -= needed;
-//     sv->curl_bytes = 0;
-//     p += needed;
-//     //check_cc("curl",sv->id, &sv->curl_cc[0], &sv->curl_buf[0]);
-//     needed = 188;
-//   }
-//   if (bytes_left) {
-//     sv->curl_bytes = bytes_left;
-//     memcpy(&sv->curl_buf[0],p,sv->curl_bytes);
-//   }
-//   //  fprintf(stderr,"End of processing, %d bytes, byte_left=%d\n",count,bytes_left);
+  // Check input stream for CC errors
+  int needed = 188 - sv->curl_bytes;
+  int bytes_left = count;
+  //  fprintf(stderr,"Processing %d bytes, needed=%d\n",count,needed);
+  uint8_t *p = contents;
+  while (bytes_left >= needed) {
+    memcpy(&sv->curl_buf[sv->curl_bytes],p,needed);
+    bytes_left -= needed;
+    sv->curl_bytes = 0;
+    p += needed;
+    //check_cc("curl",sv->id, &sv->curl_cc[0], &sv->curl_buf[0]);
+    needed = 188;
+  }
+  if (bytes_left) {
+    sv->curl_bytes = bytes_left;
+    memcpy(&sv->curl_buf[0],p,sv->curl_bytes);
+  }
+  //  fprintf(stderr,"End of processing, %d bytes, byte_left=%d\n",count,bytes_left);
 
-//   int n = rb_write(&sv->inbuf, contents, count);
+  int n = rb_write(&sv->inbuf, contents, count);
 
-//   if (n < count) {
-//     fprintf(stderr,"\nERROR: Stream %d, Input buffer full, dropping %d bytes\n",sv->id,(count)-n);
-//   }
+  if (n < count) {
+    fprintf(stderr,"\nERROR: Stream %d, Input buffer full, dropping %d bytes\n",sv->id,(count)-n);
+  }
 
-//   /* Confirm there are bytes in the buffer */
-//   sv->status=1;
+  /* Confirm there are bytes in the buffer */
+  sv->status=1;
 
-//   //fprintf(stderr,"curl_callback, stream=%s, size=%d, written=%d\n",sv->name,(int)count,n);
-//   return count; /* Pretend we've consumed all */
+  //fprintf(stderr,"curl_callback, stream=%s, size=%d, written=%d\n",sv->name,(int)count,n);
+  return count; /* Pretend we've consumed all */
 
-// }
+}
 
 // static void *curl_thread(void* userp)
 // {
@@ -161,6 +161,7 @@ static void *fread_thread(void* userp)
 {
   FILE * pFile;
   size_t result;
+  uint8_t *contents;
 
   struct service_t *sv = userp;
 
@@ -170,9 +171,11 @@ static void *fread_thread(void* userp)
   if (pFile==NULL) {fputs ("File error",stderr); exit (1);}
 
   do {
-    result = fread (&sv->inbuf, 1, 1, pFile);
+    result = fread (contents 1, 4096, pFile); // &sv->inbuf
+    
+    curl_callback(contents, 1, 4096, (void *)sv);
     //if (result != 1) {fputs ("Reading error",stderr); exit (3);}
-  } while (result);
+  } while (result > 0);
 
   fclose (pFile);
   return NULL;
