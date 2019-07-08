@@ -171,7 +171,7 @@ static void *fread_thread(void* userp)
   if (pFile==NULL) {fputs ("File error",stderr); exit (1);}
 
   do {
-    result = fread (contents 1, 4096, pFile); // &sv->inbuf
+    result = fread (contents, 1, 4096, pFile); // &sv->inbuf
     
     curl_callback(contents, 1, 4096, (void *)sv);
     //if (result != 1) {fputs ("Reading error",stderr); exit (3);}
