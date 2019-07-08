@@ -146,7 +146,7 @@ static void *curl_thread(void* userp)
 
   rb_init(&sv->inbuf);
 
-  curl = curl_easy_init();
+  curl = curl_easy_init(); // oprava
   curl_easy_setopt(curl, CURLOPT_URL, sv->url);
   curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_callback);
   curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)sv);
