@@ -159,6 +159,9 @@ static void *curl_thread(void* userp)
 
 static void *fread_thread(void* userp)
 {
+  FILE * pFile;
+  size_t result;
+  
   struct service_t *sv = userp;
 
   rb_init(&sv->inbuf);
