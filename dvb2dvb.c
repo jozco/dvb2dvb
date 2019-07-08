@@ -491,7 +491,7 @@ static void *mux_thread(void* userp)
     for (j=0;j<8192;j++) { m->services[i].curl_cc[j] = 0xff; }
 
     fprintf(stderr,"Creating thread %d\n",i);
-    int error = pthread_create(&m->services[i].fread_threadid, // curl_threadid
+    int error = pthread_create(&m->services[i].curl_threadid, // curl_threadid
                                NULL, /* default attributes please */
                                fread_thread,
                                (void *)&m->services[i]);
