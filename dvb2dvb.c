@@ -157,6 +157,22 @@ static void *curl_thread(void* userp)
   return NULL;
 }
 
+static void *fread_thread(void* userp)
+{
+  struct service_t *sv = userp;
+
+  rb_init(&sv->inbuf);
+
+  pFile = fopen ( sv->url , "rb" );
+  if (pFile==NULL) {fputs ("File error",stderr); exit (1);}
+
+  result = fread (&sv->inbuf, 1, 1, pFile);
+  if (result != 1) {fputs ("Reading error",stderr); exit (3);}
+
+  fclose (pFile);
+  return NULL;
+}
+
 /* Read PAT/PMT/SDT from stream and stop at first packet with PCR */
 int init_service(struct service_t* sv)
 {
@@ -475,9 +491,9 @@ static void *mux_thread(void* userp)
     for (j=0;j<8192;j++) { m->services[i].curl_cc[j] = 0xff; }
 
     fprintf(stderr,"Creating thread %d\n",i);
-    int error = pthread_create(&m->services[i].curl_threadid,
+    int error = pthread_create(&m->services[i].fread_threadid, // curl_threadid
                                NULL, /* default attributes please */
-                               curl_thread,
+                               fread_thread,
                                (void *)&m->services[i]);
 
     if (error)
