@@ -170,6 +170,10 @@ static void *fread_thread(void* userp)
   pFile = fopen ( sv->url , "rb" );
   if (pFile==NULL) {fputs ("File error",stderr); exit (1);}
 
+  // allocate memory to contain the whole file:
+  contents = (uint8_t*) malloc (4096);
+  if (contents == NULL) {fputs ("Memory error",stderr); exit (2);}
+
   do {
     result = fread (contents, 1, 4096, pFile); // &sv->inbuf
     if (result != 1) {fputs ("Reading error",stderr); exit (3);}
