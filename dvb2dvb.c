@@ -170,7 +170,6 @@ static void *fread_thread(void* userp)
   pFile = fopen ( sv->url , "rb" );
   if (pFile==NULL) {fputs ("File error",stderr); exit (1);}
 
-
   // allocate memory to contain the whole file:
   int size = 4096; contents = (uint8_t*) malloc (size);
   if (contents == NULL) {fputs ("Memory error",stderr); exit (2);}
