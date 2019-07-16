@@ -1,5 +1,5 @@
 /*
-
+ 
 dvb2dvb - combine multiple SPTS to a MPTS
 
 Copyright (C) 2014 Dave Chapman
@@ -138,51 +138,70 @@ curl_callback(void *contents, size_t size, size_t nmemb, void *userp)
   return count; /* Pretend we've consumed all */
 
 }
-
-// static void *curl_thread(void* userp)
-// {
-//   struct service_t *sv = userp;
-//   CURL *curl;
-
-//   rb_init(&sv->inbuf);
-
-//   curl = curl_easy_init(); // oprava
-//   curl_easy_setopt(curl, CURLOPT_URL, sv->url);
-//   curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_callback);
-//   curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)sv);
-//   curl_easy_setopt(curl, CURLOPT_USERAGENT, "dvb2dvb/git-master");
-//   curl_easy_perform(curl); /* ignores error */
-//   curl_easy_cleanup(curl);
-
-//   return NULL;
-// }
-
-static void *fread_thread(void* userp)
+/*
+static void *curl_thread(void* userp)
 {
-  FILE * pFile;
-  size_t result;
-  uint8_t *contents;
-
   struct service_t *sv = userp;
+  CURL *curl;
 
   rb_init(&sv->inbuf);
 
-  pFile = fopen ( sv->url , "rb" );
-  if (pFile==NULL) {fputs ("File error",stderr); exit (1);}
+  curl = curl_easy_init(); // oprava
+  curl_easy_setopt(curl, CURLOPT_URL, sv->url);
+  curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_callback);
+  curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)sv);
+  curl_easy_setopt(curl, CURLOPT_USERAGENT, "dvb2dvb/git-master");
+  curl_easy_perform(curl); // ignores error 
+  curl_easy_cleanup(curl);
 
-  // allocate memory to contain the whole file:
-  contents = (uint8_t*) malloc (4096);
-  if (contents == NULL) {fputs ("Memory error",stderr); exit (2);}
-
-  do {
-    result = fread (contents, 1, 4096, pFile); // &sv->inbuf
-    if (result != 1) {fputs ("Reading error",stderr); exit (3);}
-    curl_callback(contents, 1, 4096, (void *)sv);
-  } while (result > 0);
-
-  fclose (pFile);
   return NULL;
 }
+*/
+ static void *curl_thread(void* userp)
+ {
+   FILE * pFile;
+   size_t result;
+   uint8_t *contents;
+
+   struct service_t *sv = userp;
+
+//fprintf(stderr, "DEBUG 1\n");
+   rb_init(&sv->inbuf);
+
+//fprintf(stderr, "DEBUG 1b\n");
+   pFile = fopen ( sv->url , "rb" );
+/*  if ((pFile = open( sv->url, O_RDONLY)) < 0) {
+    fprintf(stderr,"Failed to open %s .\n", sv->url);
+    return;
+  }
+*/
+//fprintf(stderr, "DEBUG 1c\n");
+   if (pFile==NULL) {
+//fprintf(stderr, "DEBUG 1d\n");
+        fputs ("File error",stderr); 
+//fprintf(stderr, "DEBUG 1e\n");
+        exit (1);
+    }
+
+//fprintf(stderr, "DEBUG 2\n");
+   // allocate memory to contain the whole file:
+   int size = 188; contents = (uint8_t*) malloc (size);
+   if (contents == NULL) {fputs ("Memory error",stderr); exit (2);}
+
+     // sv->curl_bytes = 0;
+
+//fprintf(stderr, "DEBUG 3\n");
+
+   while((result = fread (contents, 1, size, pFile))>0) {
+//fprintf(stderr, "DEBUG 4\n");
+
+     curl_callback(contents, 1, result, (void *)sv);
+     //fprintf(stderr, "Result: %d\n", result);
+   };
+
+   fclose (pFile);
+   return NULL;
+ }
 
 /* Read PAT/PMT/SDT from stream and stop at first packet with PCR */
 int init_service(struct service_t* sv)
@@ -450,7 +469,7 @@ static void *output_thread(void* userp)
         //fprintf(stderr,"Wrote %d\n",n);
         bytes_sent += n;
         bytes_done += n;
-        //fprintf(stderr,"Bytes sent: %llu\r",bytes_sent);
+        fprintf(stderr,"Bytes sent: %llu\r",bytes_sent);
       }
     }
   }  
@@ -504,7 +523,7 @@ static void *mux_thread(void* userp)
     fprintf(stderr,"Creating thread %d\n",i);
     int error = pthread_create(&m->services[i].curl_threadid, // curl_threadid
                                NULL, /* default attributes please */
-                               fread_thread,
+                               curl_thread,
                                (void *)&m->services[i]);
 
     if (error)
@@ -546,7 +565,7 @@ static void *mux_thread(void* userp)
     sync_to_pcr(&m->services[i]);
   }
 
-  //fprintf(stderr,"Creating PAT - nservices=%d\n",nservices);
+//  fprintf(stderr,"Creating PAT - nservices=%d\n",nservices);
 
   create_pat(&m->pat, m);
   create_sdt(&m->sdt, m);
@@ -580,13 +599,13 @@ static void *mux_thread(void* userp)
         int64_t pcr_diff = sv->second_pcr - sv->first_pcr;
         int npackets = sv->packets_in_buf;
         //double packet_duration = pcr_diff / (double)npackets;
-        //fprintf(stderr,"Stream %d: pcr_diff = %lld, npackets=%lld, packet duration=%.8g ticks\n",i,pcr_diff,npackets,packet_duration);
+//        fprintf(stderr,"Stream %d: pcr_diff = %lld, npackets=%lld, packet duration=%.8g ticks\n",i,pcr_diff,npackets,packet_duration);
 
         // Now calculate the output position for each packet, in terms of total bits written so far.
         for (j=0;j<sv->packets_in_buf;j++) {
           int64_t  packet_pcr = sv->first_pcr + ((j * pcr_diff)/(npackets-1)) - sv->start_pcr;
           sv->bitpos[j] = (packet_pcr * m->channel_capacity) / 27000000;
-          //fprintf(stderr, "Stream %d, packet %d, packet_pcr = %lld, bitpos %lld\n",i,j,packet_pcr,sv->bitpos[j]);
+          fprintf(stderr, "Stream %d, packet %d, packet_pcr = %lld, bitpos %lld\n",i,j,packet_pcr,sv->bitpos[j]);
         }
       }
     }
@@ -599,7 +618,7 @@ static void *mux_thread(void* userp)
       }
     }
 
-    //fprintf(stderr,"output_bitpos=%d, sv->bitpos[sv->packets_written]=%d\n",output_bitpos,sv->bitpos[sv->packets_written]);
+    fprintf(stderr,"output_bitpos=%d, sv->bitpos[sv->packets_written]=%d\n",output_bitpos,sv->bitpos[sv->packets_written]);
 
 #if 0
     fprintf(stderr,"output_bitpos  next_pat   next_pmt   next_sdt   next_nit");
@@ -622,7 +641,7 @@ static void *mux_thread(void* userp)
 
     /* Output NULL packets until we reach next_bitpos */
     while (next_bitpos > output_bitpos) {
-      //fprintf(stderr,"next_bitpos=%lld, output_bitpos=%lld            \n",next_bitpos,output_bitpos);
+      fprintf(stderr,"next_bitpos=%lld, output_bitpos=%lld            \n",next_bitpos,output_bitpos);
       rb_write(&m->outbuf, null_packet, 188);
       padding_bits += 188*8;
       output_bitpos += 188*8;
