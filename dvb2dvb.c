@@ -37,6 +37,20 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 #include "crc32.h"
 #include "parse_config.h"
 
+/////////////////////////////////////////////////
+// tcudpreceive integration from OpenCaster
+/////////////////////////////////////////////////
+#define MULTICAST
+
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <sys/types.h>
+#include <arpa/inet.h>
+#include <sys/time.h>
+
+#define UDP_MAXIMUM_SIZE 188*20 //65535 /* theoretical maximum size */
+/////////////////////////////////////////////////
+
 static uint8_t null_packet[188] = {
   0x47, 0x1f, 0xff, 0x10, 0xff, 0xff, 0xff, 0xff,
   0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
@@ -138,68 +152,87 @@ curl_callback(void *contents, size_t size, size_t nmemb, void *userp)
   return count; /* Pretend we've consumed all */
 
 }
-/*
-static void *curl_thread(void* userp)
-{
-  struct service_t *sv = userp;
-  CURL *curl;
 
-  rb_init(&sv->inbuf);
-
-  curl = curl_easy_init(); // oprava
-  curl_easy_setopt(curl, CURLOPT_URL, sv->url);
-  curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_callback);
-  curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)sv);
-  curl_easy_setopt(curl, CURLOPT_USERAGENT, "dvb2dvb/git-master");
-  curl_easy_perform(curl); // ignores error 
-  curl_easy_cleanup(curl);
-
-  return NULL;
-}
-*/
  static void *curl_thread(void* userp)
  {
-   FILE * pFile;
-   size_t result;
-   uint8_t *contents;
-
    struct service_t *sv = userp;
 
-//fprintf(stderr, "DEBUG 1\n");
    rb_init(&sv->inbuf);
 
-//fprintf(stderr, "DEBUG 1b\n");
-   pFile = fopen ( sv->url , "rb" );
-/*  if ((pFile = open( sv->url, O_RDONLY)) < 0) {
-    fprintf(stderr,"Failed to open %s .\n", sv->url);
-    return;
-  }
-*/
-//fprintf(stderr, "DEBUG 1c\n");
-   if (pFile==NULL) {
-//fprintf(stderr, "DEBUG 1d\n");
-        fputs ("File error",stderr); 
-//fprintf(stderr, "DEBUG 1e\n");
-        exit (1);
+/////////////////////////////////////////////////////////
+// url port parse from https://stackoverflow.com/questions/726122/best-ways-of-parsing-a-url-using-c
+/////////////////////////////////////////////////////////
+    char ip[100];
+    int port = 80;
+    sscanf(sv->url, "%99[^:]:%99d", ip, &port);
+/////////////////////////////////////////////////////////
+// tcudpreceive integration from OpenCaster
+/////////////////////////////////////////////////////////
+    int sockfd;
+    struct sockaddr_in addr;
+    #ifdef ip_mreqn
+     struct ip_mreqn mgroup;XXX
+    #else
+     /* according to
+          http://lists.freebsd.org/pipermail/freebsd-current/2007-December/081080.html
+        in bsd it is also possible to simply use ip_mreq instead of ip_mreqn
+        (same as in Linux), so we are using this instead
+     */
+     struct ip_mreq mgroup;
+    #endif
+    int reuse;
+    unsigned int addrlen;
+    int len;
+    unsigned char udp_packet[UDP_MAXIMUM_SIZE];
+
+
+	memset((char *) &mgroup, 0, sizeof(mgroup));
+	mgroup.imr_multiaddr.s_addr = inet_addr(ip); // argv[1]
+        #ifdef ip_mreqn
+	 mgroup.imr_address.s_addr = INADDR_ANY;
+        #else
+         /* this is called 'interface' here */
+	 mgroup.imr_interface.s_addr = INADDR_ANY;
+        #endif
+	memset((char *) &addr, 0, sizeof(addr));
+	addr.sin_family = AF_INET;
+	addr.sin_port = htons(port); // argv[2]
+	addr.sin_addr.s_addr = inet_addr(ip); // argv[1]
+	addrlen = sizeof(addr);
+
+    sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sockfd < 0) {
+	perror("socket(): error ");
+	return 0;
+    }
+    
+    reuse = 1;
+    if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, (char *)&reuse, sizeof(reuse)) < 0) {
+	perror("setsockopt() SO_REUSEADDR: error ");
     }
 
-//fprintf(stderr, "DEBUG 2\n");
-   // allocate memory to contain the whole file:
-   int size = 188; contents = (uint8_t*) malloc (size);
-   if (contents == NULL) {fputs ("Memory error",stderr); exit (2);}
+    if (bind(sockfd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+	perror("bind(): error");
+	close(sockfd);
+	return 0;
+    }
+    
+    if (setsockopt(sockfd, IPPROTO_IP, IP_ADD_MEMBERSHIP, (char *)&mgroup, sizeof(mgroup)) < 0) {
+	perror("setsockopt() IPPROTO_IP: error ");
+	close(sockfd);
+	return 0;
+    }
 
-     // sv->curl_bytes = 0;
+  while(1) {
+	len = recvfrom(sockfd, udp_packet, UDP_MAXIMUM_SIZE, 0, (struct sockaddr *) &addr,&addrlen);
+	if (len < 0) {
+	    perror("recvfrom(): error ");
+	} else {
+      curl_callback((uint8_t*)udp_packet, 1, len, (void *)sv);
+	}
+  }
+/////////////////////////////////////////////////////
 
-//fprintf(stderr, "DEBUG 3\n");
-
-   while((result = fread (contents, 1, size, pFile))>0) {
-//fprintf(stderr, "DEBUG 4\n");
-
-     curl_callback(contents, 1, result, (void *)sv);
-     //fprintf(stderr, "Result: %d\n", result);
-   };
-
-   fclose (pFile);
    return NULL;
  }
 
