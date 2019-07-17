@@ -50,7 +50,36 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 
 #define UDP_MAXIMUM_SIZE 188*20 //65535 /* theoretical maximum size */
 /////////////////////////////////////////////////
+// tcudpsend integration from OpenCaster
+/////////////////////////////////////////////////
+#define TS_PACKET_SIZE 188
 
+long long int usecDiff(struct timespec* time_stop, struct timespec* time_start)
+{
+	long long int temp = 0;
+	long long int utemp = 0;
+		   
+	if (time_stop && time_start) {
+		if (time_stop->tv_nsec >= time_start->tv_nsec) {
+			utemp = time_stop->tv_nsec - time_start->tv_nsec;    
+			temp = time_stop->tv_sec - time_start->tv_sec;
+		} else {
+			utemp = time_stop->tv_nsec + 1000000000 - time_start->tv_nsec;       
+			temp = time_stop->tv_sec - 1 - time_start->tv_sec;
+		}
+		if (temp >= 0 && utemp >= 0) {
+			temp = (temp * 1000000000) + utemp;
+        	} else {
+			fprintf(stderr, "start time %ld.%ld is after stop time %ld.%ld\n", time_start->tv_sec, time_start->tv_nsec, time_stop->tv_sec, time_stop->tv_nsec);
+			temp = -1;
+		}
+	} else {
+		fprintf(stderr, "memory is garbaged?\n");
+		temp = -1;
+	}
+        return temp / 1000;
+}
+/////////////////////////////////////////////////
 static uint8_t null_packet[188] = {
   0x47, 0x1f, 0xff, 0x10, 0xff, 0xff, 0xff, 0xff,
   0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
@@ -130,7 +159,7 @@ curl_callback(void *contents, size_t size, size_t nmemb, void *userp)
     bytes_left -= needed;
     sv->curl_bytes = 0;
     p += needed;
-    //check_cc("curl",sv->id, &sv->curl_cc[0], &sv->curl_buf[0]);
+    // check_cc("curl",sv->id, &sv->curl_cc[0], &sv->curl_buf[0]);
     needed = 188;
   }
   if (bytes_left) {
@@ -152,6 +181,27 @@ curl_callback(void *contents, size_t size, size_t nmemb, void *userp)
   return count; /* Pretend we've consumed all */
 
 }
+
+// int total_bytes[100];
+// time_t last_time;
+// int setstats(void) {
+//   for(int i = 0; i < 100; i++) {
+//     total_bytes[i] = 0;
+//   }
+//   time ( &last_time );
+// }
+// int showstats(int len, int id) {
+//   total_bytes[id] += len;
+//   time_t now; time (&now);
+//   if(last_time < now) {
+//     time(&last_time);
+//     for(int i = 0; i < 4; i++) {
+//       fprintf(stderr, "ID: %d READ: %d kbbp | ", i, (total_bytes[i]*8)/1000);
+//       total_bytes[id] = 0;
+//     }
+//     fprintf(stderr, "\n");
+//   }
+// }
 
  static void *curl_thread(void* userp)
  {
@@ -223,8 +273,12 @@ curl_callback(void *contents, size_t size, size_t nmemb, void *userp)
 	return 0;
     }
 
+  //setstats();
   while(1) {
 	len = recvfrom(sockfd, udp_packet, UDP_MAXIMUM_SIZE, 0, (struct sockaddr *) &addr,&addrlen);
+    //fprintf(stderr,"\nRead %d from %d\n",len,sv->id);
+    //showstats(len,sv->id);
+
 	if (len < 0) {
 	    perror("recvfrom(): error ");
 	} else {
@@ -448,66 +502,249 @@ static int calc_channel_capacity(struct dvb_modulator_parameters *params)
   return channel_capacity/544*423;
 }
 
+int explode(char ***arr_ptr, char *str, char delimiter) /* https://www.it.uu.se/katalog/larme597/explode */
+{
+  char *src = str, *end, *dst;
+  char **arr;
+  int size = 1, i;
+
+  // Find number of strings
+  while ((end = strchr(src, delimiter)) != NULL)
+  {
+    ++size;
+    src = end + 1;
+  }
+
+  arr = malloc(size * sizeof(char *) + (strlen(str) + 1) * sizeof(char));
+
+  src = str;
+  dst = (char *)arr + size * sizeof(char *);
+  for (i = 0; i < size; ++i)
+  {
+    if ((end = strchr(src, delimiter)) == NULL)
+      end = src + strlen(src);
+    arr[i] = dst;
+    strncpy(dst, src, end - src);
+    dst[end - src] = '\0';
+    dst += end - src + 1;
+    src = end + 1;
+  }
+  *arr_ptr = arr;
+
+  return size;
+}
+
 static void *output_thread(void* userp)
 {
   struct mux_t *m = userp;
-  int mod_fd;
+
+  /* argv argc creation */
+  char **argv;//, *str = "@ @ 239.9.12.1 1234 27709884 7 10";
+  int argc;
+  
+  argc = explode(&argv, m->device, ' ');
+
+  /* tsudpsend start */
+  int sockfd;
+  int len;
+  int sent;
+  int ret;
+  int is_multicast;
+  // int transport_fd;
+  unsigned char option_ttl;
+  char start_addr[4];
+  struct sockaddr_in addr;
+  unsigned long int packet_size;
+  char *tsfile;
+  unsigned char *send_buf;
+  unsigned int bitrate;
+  unsigned long long int packet_time;
+  unsigned long long int real_time;
+  struct timespec time_start;
+  struct timespec time_stop;
+  struct timespec nano_sleep_packet;
+
+  memset(&addr, 0, sizeof(addr));
+  memset(&time_start, 0, sizeof(time_start));
+  memset(&time_stop, 0, sizeof(time_stop));
+  memset(&nano_sleep_packet, 0, sizeof(nano_sleep_packet));
+
+  if (argc < 5)
+  {
+    fprintf(stderr, "Usage: %s file.ts ipaddr port bitrate [ts_packet_per_ip_packet] [udp_packet_ttl]\n", argv[0]);
+    fprintf(stderr, "ts_packet_per_ip_packet default is 7\n");
+    fprintf(stderr, "bit rate refers to transport stream bit rate\n");
+    fprintf(stderr, "zero bitrate is 100.000.000 bps\n");
+    return 0;
+  }
+  else
+  {
+    tsfile = argv[1];
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = inet_addr(argv[2]);
+    addr.sin_port = htons(atoi(argv[3]));
+    bitrate = atoi(argv[4]);
+    if (bitrate <= 0)
+    {
+      bitrate = 100000000;
+    }
+    if (argc >= 6)
+    {
+      packet_size = strtoul(argv[5], 0, 0) * TS_PACKET_SIZE;
+    }
+    else
+    {
+      packet_size = 7 * TS_PACKET_SIZE;
+    }
+  }
+
+  sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+  if (sockfd < 0)
+  {
+    perror("socket(): error ");
+    return 0;
+  }
+
+  if (argc >= 7)
+  {
+    option_ttl = atoi(argv[6]);
+    is_multicast = 0;
+    memcpy(start_addr, argv[2], 3);
+    start_addr[3] = 0;
+    is_multicast = atoi(start_addr);
+    is_multicast = (is_multicast >= 224) || (is_multicast <= 239);
+    if (is_multicast)
+    {
+      ret = setsockopt(sockfd, IPPROTO_IP, IP_MULTICAST_TTL, &option_ttl, sizeof(option_ttl));
+    }
+    else
+    {
+      ret = setsockopt(sockfd, IPPROTO_IP, IP_TTL, &option_ttl, sizeof(option_ttl));
+    }
+
+    if (ret < 0)
+    {
+      perror("ttl configuration fail");
+    }
+  }
+
+  // transport_fd = open(tsfile, O_RDONLY);
+  // if (transport_fd < 0)
+  // {
+  //   fprintf(stderr, "can't open file %s\n", tsfile);
+  //   close(sockfd);
+  //   return 0;
+  // }
+
+  int completed = 0;
+  send_buf = malloc(packet_size);
+  packet_time = 0;
+  real_time = 0;
+
+  nano_sleep_packet.tv_nsec = 665778; /* 1 packet at 100mbps*/
+
+  clock_gettime(CLOCK_MONOTONIC, &time_start);
+  /* tsudpsend end */
+
+  // int mod_fd;
   int result;
   int channel_capacity;
   int gain;
 
   /* Open Device */
-  if ((mod_fd = open(m->device, O_RDWR)) < 0) {
-    fprintf(stderr,"Failed to open device.\n");
-    return;
-  }
+  // if ((mod_fd = open(m->device, O_RDWR)) < 0) {
+  //   fprintf(stderr,"Failed to open device.\n");
+  //   return;
+  // }
 
   m->dvbmod_params.cell_id = 0;
-  result = ioctl(mod_fd, DVBMOD_SET_PARAMETERS, &m->dvbmod_params);
+  // result = ioctl(mod_fd, DVBMOD_SET_PARAMETERS, &m->dvbmod_params);
 
   struct dvb_modulator_gain_range gain_range;
   gain_range.frequency_khz = m->dvbmod_params.frequency_khz;
-  result = ioctl(mod_fd, DVBMOD_GET_RF_GAIN_RANGE, &gain_range);
-  fprintf(stderr,"Gain range: %d to %d\n",gain_range.min_gain,gain_range.max_gain);
+  // result = ioctl(mod_fd, DVBMOD_GET_RF_GAIN_RANGE, &gain_range);
+  // fprintf(stderr,"Gain range: %d to %d\n",gain_range.min_gain,gain_range.max_gain);
 
-  result = ioctl(mod_fd, DVBMOD_SET_RF_GAIN, &m->gain);
-  fprintf(stderr,"Gain set to %d\n",m->gain);
+  // result = ioctl(mod_fd, DVBMOD_SET_RF_GAIN, &m->gain);
+  // fprintf(stderr,"Gain set to %d\n",m->gain);
 
   /* Wait for 4MB in the ringbuffer */
   while (rb_get_bytes_used(&m->outbuf) < 10*1024*1024) {
     usleep(50000);
   }
 
-  /* The main transfer loop */
-  unsigned char buf[188*200];
-  int n;
-  unsigned long long bytes_sent = 0;
-  while(1) {
-    n = rb_read(&m->outbuf,buf,sizeof(buf));
-    if (n == 0) { break; }
+  /* tsudpsend start */
+  while (!completed)
+  {
 
-    int to_write = n;
-    int bytes_done = 0;
-    while (bytes_done < to_write) {
-      n = write(mod_fd,buf+bytes_done,to_write-bytes_done);
-      if (n == 0) {
-        /* This shouldn't happen */
-        fprintf(stderr,"Zero write\n");
-        usleep(500);
-      } else if (n <= 0) {
-	fprintf(stderr,"Write error %d: ",n);
-        perror("Write error: ");
-      } else {
-        //if (n < sizeof(buf)) { fprintf(stderr,"Short write - %d bytes\n",n); }
-        //fprintf(stderr,"Wrote %d\n",n);
-        bytes_sent += n;
-        bytes_done += n;
-        fprintf(stderr,"Bytes sent: %llu\r",bytes_sent);
+    clock_gettime(CLOCK_MONOTONIC, &time_stop);
+    real_time = usecDiff(&time_stop, &time_start);
+    while (real_time * bitrate > packet_time * 1000000 && !completed)
+    { /* theorical bits against sent bits */
+      len = rb_read(&m->outbuf,send_buf,packet_size); /* from original */
+      //len = read(&m->outbuf, send_buf, packet_size);  //transport_fd
+      if (len < 0)
+      {
+        fprintf(stderr, "ts file read error \n");
+        completed = 1;
+      }
+      else if (len == 0)
+      {
+        fprintf(stderr, "ts sent done\n");
+        completed = 1;
+      }
+      else
+      {
+        sent = sendto(sockfd, send_buf, len, 0, (struct sockaddr *)&addr, sizeof(struct sockaddr_in));
+        if (sent <= 0)
+        {
+          perror("send(): error ");
+          completed = 1;
+        }
+        else
+        {
+          packet_time += packet_size * 8;
+        }
       }
     }
-  }  
+    nanosleep(&nano_sleep_packet, 0);
+  }
 
-  close(mod_fd);
+  // close(transport_fd);
+  close(sockfd);
+  free(send_buf);
+  /* tsudpsend end */
+
+  /* The main transfer loop */
+  // unsigned char buf[188*200];
+  // int n;
+  // unsigned long long bytes_sent = 0;
+  // while(1) {
+  //   n = rb_read(&m->outbuf,buf,sizeof(buf));
+  //   if (n == 0) { break; }
+
+  //   int to_write = n;
+  //   int bytes_done = 0;
+  //   while (bytes_done < to_write) {
+  //     n = write(mod_fd,buf+bytes_done,to_write-bytes_done);
+  //     if (n == 0) {
+  //       /* This shouldn't happen */
+  //       fprintf(stderr,"Zero write\n");
+  //       usleep(500);
+  //     } else if (n <= 0) {
+	// fprintf(stderr,"Write error %d: ",n);
+  //       perror("Write error: ");
+  //     } else {
+  //       //if (n < sizeof(buf)) { fprintf(stderr,"Short write - %d bytes\n",n); }
+  //       //fprintf(stderr,"Wrote %d\n",n);
+  //       bytes_sent += n;
+  //       bytes_done += n;
+  //       fprintf(stderr,"Bytes sent: %llu\r",bytes_sent);
+  //     }
+  //   }
+  // }  
+
+  // close(mod_fd);
   return;
 }
 
@@ -638,7 +875,7 @@ static void *mux_thread(void* userp)
         for (j=0;j<sv->packets_in_buf;j++) {
           int64_t  packet_pcr = sv->first_pcr + ((j * pcr_diff)/(npackets-1)) - sv->start_pcr;
           sv->bitpos[j] = (packet_pcr * m->channel_capacity) / 27000000;
-          fprintf(stderr, "Stream %d, packet %d, packet_pcr = %lld, bitpos %lld\n",i,j,packet_pcr,sv->bitpos[j]);
+          // fprintf(stderr, "Stream %d, packet %d, packet_pcr = %lld, bitpos %lld\n",i,j,packet_pcr,sv->bitpos[j]); // uncomment
         }
       }
     }
@@ -651,7 +888,7 @@ static void *mux_thread(void* userp)
       }
     }
 
-    fprintf(stderr,"output_bitpos=%d, sv->bitpos[sv->packets_written]=%d\n",output_bitpos,sv->bitpos[sv->packets_written]);
+    // fprintf(stderr,"output_bitpos=%d, sv->bitpos[sv->packets_written]=%d\n",output_bitpos,sv->bitpos[sv->packets_written]); // uncomment
 
 #if 0
     fprintf(stderr,"output_bitpos  next_pat   next_pmt   next_sdt   next_nit");
@@ -674,7 +911,7 @@ static void *mux_thread(void* userp)
 
     /* Output NULL packets until we reach next_bitpos */
     while (next_bitpos > output_bitpos) {
-      fprintf(stderr,"next_bitpos=%lld, output_bitpos=%lld            \n",next_bitpos,output_bitpos);
+      // fprintf(stderr,"next_bitpos=%lld, output_bitpos=%lld            \n",next_bitpos,output_bitpos); // uncomment
       rb_write(&m->outbuf, null_packet, 188);
       padding_bits += 188*8;
       output_bitpos += 188*8;
@@ -731,9 +968,9 @@ static void *mux_thread(void* userp)
     if (x==1000) {
       x = 0;
       for (i=0;i<m->nservices;i++) {
-        fprintf(stderr,"%10d  ",rb_get_bytes_used(&m->services[i].inbuf));
+//        fprintf(stderr,"%10d  ",rb_get_bytes_used(&m->services[i].inbuf)); // uncomment also that down
       }
-      fprintf(stderr,"Average capacity used: %.3g%%  Outbuf = %10d               \r",100.0*(double)(output_bitpos-padding_bits)/(double)output_bitpos,rb_get_bytes_used(&m->outbuf));
+//       fprintf(stderr,"Average capacity used: %.3g%%  Outbuf = %10d               \r",100.0*(double)(output_bitpos-padding_bits)/(double)output_bitpos,rb_get_bytes_used(&m->outbuf));
     }
     x++;
   }
