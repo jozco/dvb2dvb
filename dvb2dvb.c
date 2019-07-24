@@ -113,7 +113,19 @@ static uint8_t null_packet[188] = {
 void dump_service(struct service_t *services, int i)
 {
   fprintf(stderr, "Service %d:\n", i);
-  fprintf(stderr, "  URL: %s\n", services[i].url);
+  switch(services[i].source) {
+    case 0:
+      fprintf(stderr, "  URL: %s\n", services[i].url);
+      break;
+    
+    case 1:
+      fprintf(stderr, "  FILE: %s\n", services[i].file);
+      break;
+
+    case 2:
+      fprintf(stderr, "  MULTICAST: %s\n", services[i].mcast);
+      break;
+  }
   fprintf(stderr, "  service_id: OLD=%d NEW=%d\n", services[i].service_id, services[i].new_service_id);
   fprintf(stderr, "  name: %s\n", services[i].name);
   fprintf(stderr, "  pmt_pid: OLD=%d NEW=%d\n", services[i].pmt_pid, services[i].new_pmt_pid);
@@ -195,6 +207,7 @@ curl_callback(void *contents, size_t size, size_t nmemb, void *userp)
   // fprintf(stderr, "curl_callback, stream=%s, size=%d, written=%d\n", sv->name, (int)count, n); // commented
   return count;                                                                                /* Pretend we've consumed all */
 }
+
 /* statistics definition */
 int total_bytes[4];
 time_t last_time, now;
@@ -239,7 +252,6 @@ static void *curl_thread(void *userp)
   rb_init(&sv->inbuf);
 
   if(sv->source == 0) {
-  /* CURL */
     curl = curl_easy_init();
     curl_easy_setopt(curl, CURLOPT_URL, sv->url);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_callback);
@@ -247,7 +259,6 @@ static void *curl_thread(void *userp)
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "dvb2dvb/git-master");
     curl_easy_perform(curl); /* ignores error */
     curl_easy_cleanup(curl);
-  /* CURL END */
   }
 
   if(sv->source == 1) {
@@ -835,12 +846,12 @@ static void *output_thread(void *userp)
     while (bytes_done < to_write) {
       n = write(mod_fd,buf+bytes_done,to_write-bytes_done);
 
-      pFile = fopen ("output.ts","a+");
-      if (pFile!=NULL)
-      {
-        n = fwrite(buf+bytes_done, sizeof(char), to_write-bytes_done, pFile);
-        fclose (pFile);
-      }
+      // pFile = fopen ("output.ts","a+");
+      // if (pFile!=NULL)
+      // {
+      //   n = fwrite(buf+bytes_done, sizeof(char), to_write-bytes_done, pFile);
+      //   fclose (pFile);
+      // }
 
       if (n == 0) {
         /* This shouldn't happen */
@@ -926,7 +937,19 @@ static void *mux_thread(void *userp)
     }
     else
     {
-      fprintf(stderr, "Thread %d, gets %s\n", i, m->services[i].url);
+      switch(m->services[i].source) {
+        case 0:
+          fprintf(stderr, "Thread %d, gets %s\n", i, m->services[i].url);
+          break;
+        
+        case 1:
+          fprintf(stderr, "Thread %d, gets %s\n", i, m->services[i].file);
+          break;
+
+        case 2:
+          fprintf(stderr, "Thread %d, gets %s\n", i, m->services[i].mcast);
+          break;
+      }
     }
   }
 
@@ -946,7 +969,20 @@ static void *mux_thread(void *userp)
     int res = init_service(&m->services[i]);
     if (res < 0)
     {
-      fprintf(stderr, "Error opening service %d (%s), aborting\n", i, m->services[i].url);
+      
+      switch(m->services[i].source) {
+        case 0:
+          fprintf(stderr, "Error opening service %d (%s), aborting\n", i, m->services[i].url);
+          break;
+        
+        case 1:
+          fprintf(stderr, "Error opening service %d (%s), aborting\n", i, m->services[i].file);
+          break;
+
+        case 2:
+          fprintf(stderr, "Error opening service %d (%s), aborting\n", i, m->services[i].mcast);
+          break;
+      }
       return;
     }
 
