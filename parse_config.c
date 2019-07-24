@@ -186,6 +186,12 @@ int parse_config(char* filename, struct mux_t **muxes_res)
       for (j=0;j<(int)s->u.object.length;j++) {
         if ((!strcmp(s->u.object.values[j].name,"url")) && (s->u.object.values[j].value->type == json_string))
           mux->services[i].url = strdup(s->u.object.values[j].value->u.string.ptr);
+        else if ((!strcmp(s->u.object.values[j].name,"file")) && (s->u.object.values[j].value->type == json_string))
+          mux->services[i].file = strdup(s->u.object.values[j].value->u.string.ptr);
+        else if ((!strcmp(s->u.object.values[j].name,"mcast")) && (s->u.object.values[j].value->type == json_string))
+          mux->services[i].mcast = strdup(s->u.object.values[j].value->u.string.ptr);
+        else if ((!strcmp(s->u.object.values[j].name,"source")) && (s->u.object.values[j].value->type == json_integer))
+          mux->services[i].source = s->u.object.values[j].value->u.integer;
         else if ((!strcmp(s->u.object.values[j].name,"service_id")) && (s->u.object.values[j].value->type == json_integer))
           mux->services[i].new_service_id = s->u.object.values[j].value->u.integer;
         else if ((!strcmp(s->u.object.values[j].name,"lcn")) && (s->u.object.values[j].value->type == json_integer))
