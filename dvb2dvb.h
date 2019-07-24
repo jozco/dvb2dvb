@@ -61,8 +61,11 @@ struct service_t
   int id;
   int status; /* 0 = not started, 1 = streaming */
   char *url;
+  char *file;
+  char *mcast;
   char* name;
 
+  int source;
   int service_id;
   int service_type;
   int onid;
