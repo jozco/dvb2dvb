@@ -650,10 +650,10 @@ static void *output_thread(void *userp)
   struct mux_t *m = userp;
 
   /* argv argc creation */
-  char **argv; //, *str = "@ @ 239.9.12.1 1234 27709884 7 10";
-  int argc;
+  // char **argv; //, *str = "@ @ 239.9.12.1 1234 27709884 7 10";
+  // int argc;
 
-  argc = explode(&argv, m->device, ' ');
+  // argc = explode(&argv, m->device, ' ');
 
   /* -----------------------------  tsudpsend start  */
   // int sockfd;
