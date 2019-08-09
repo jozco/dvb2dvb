@@ -771,14 +771,14 @@ static void *output_thread(void *userp)
   /* end of open device */
 
   m->dvbmod_params.cell_id = 0;
-  result = ioctl(mod_fd, DVBMOD_SET_PARAMETERS, &m->dvbmod_params);
+  // result = ioctl(mod_fd, DVBMOD_SET_PARAMETERS, &m->dvbmod_params);
 
   struct dvb_modulator_gain_range gain_range;
   gain_range.frequency_khz = m->dvbmod_params.frequency_khz;
-  result = ioctl(mod_fd, DVBMOD_GET_RF_GAIN_RANGE, &gain_range);
+  // result = ioctl(mod_fd, DVBMOD_GET_RF_GAIN_RANGE, &gain_range);
   fprintf(stderr, "Gain range: %d to %d\n", gain_range.min_gain, gain_range.max_gain);
 
-  result = ioctl(mod_fd, DVBMOD_SET_RF_GAIN, &m->gain);
+  // result = ioctl(mod_fd, DVBMOD_SET_RF_GAIN, &m->gain);
   fprintf(stderr, "Gain set to %d\n", m->gain);
 
   /* Wait for 4MB in the ringbuffer */
@@ -795,8 +795,8 @@ static void *output_thread(void *userp)
   //   real_time = usecDiff(&time_stop, &time_start);
   //   while (real_time * bitrate > packet_time * 1000000 && !completed)
   //   {                                                   /* theorical bits against sent bits */
-  //     len = rb_read(&m->outbuf, send_buf, packet_size); /* from original */
-  //     //len = read(transport_fd, send_buf, packet_size);  //transport_fd
+  //     len = rb_read(&m->outbuf, send_buf, packet_size); /* from main transfer loop */
+  //     //len = read(&m->outbuf, send_buf, packet_size);
   //     if (len < 0)
   //     {
   //       fprintf(stderr, "ts file read error \n");
@@ -830,10 +830,10 @@ static void *output_thread(void *userp)
   // free(send_buf);
   /* -------------------------------- tsudpsend end */
 
-  FILE * pFile;
+  //FILE * pFile;
 
   /* The main transfer loop */
-  unsigned char buf[188*200];
+  unsigned char buf[188];
   int n;
   unsigned long long bytes_sent = 0;
   while(1) {
@@ -845,14 +845,6 @@ static void *output_thread(void *userp)
     int bytes_done = 0;
     while (bytes_done < to_write) {
       n = write(mod_fd,buf+bytes_done,to_write-bytes_done);
-
-      // pFile = fopen ("output.ts","a+");
-      // if (pFile!=NULL)
-      // {
-      //   n = fwrite(buf+bytes_done, sizeof(char), to_write-bytes_done, pFile);
-      //   fclose (pFile);
-      // }
-
       if (n == 0) {
         /* This shouldn't happen */
         fprintf(stderr,"Zero write\n");
@@ -872,6 +864,7 @@ static void *output_thread(void *userp)
 
   close(mod_fd);
   /* End of main transfer loop */
+
   return;
 }
 
@@ -976,11 +969,11 @@ static void *mux_thread(void *userp)
           break;
         
         case 1:
-          fprintf(stderr, "Error opening service %d (%s), aborting\n", i, m->services[i].file);
+          fprintf(stderr, "Error opening file %d (%s), aborting\n", i, m->services[i].file);
           break;
 
         case 2:
-          fprintf(stderr, "Error opening service %d (%s), aborting\n", i, m->services[i].mcast);
+          fprintf(stderr, "Error opening multicast %d (%s), aborting\n", i, m->services[i].mcast);
           break;
       }
       return;
