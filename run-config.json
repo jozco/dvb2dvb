@@ -1,0 +1,69 @@
+{
+    "common": {
+        "bandwidth_hz": 7000,
+        "transmission_mode": "8K",
+        "constellation": "QAM_64",
+        "guard_interval": "1/32",
+        "code_rate_HP": "7/8",
+        "gain" : -6,
+        "onid": 9018,
+        "nid": 12339
+    },
+    "muxes": [
+        {
+            "device": "@ @ 239.9.12.1 1234 27709884 7 10",
+            "frequency_khz": 802000,
+            "tsid": 57005,
+            "services": [
+                {
+                    "comment": "Jednotka HD 239.9.10.1",
+                    "url": "http://176.102.98.74:1234/udp/239.9.10.1-1234",
+		    "file": "file1.ts",
+		    "mcast": "239.9.10.1:1234",
+		    "source": 2,
+                    "lcn": 90,
+                    "service_id": 69,
+                    "hbbtv": {
+                        "url": "http://www.example.com/hbbtv/"
+                    }
+                },
+                {
+                    "comment": "Dvojka HD 239.9.10.10",
+                    "url": "http://176.102.98.74:1234/udp/239.9.10.10-1234",
+		    "file": "file2.ts",
+                    "mcast": "239.9.10.10:1234",
+                    "source": 2,
+                    "lcn": 91,
+                    "service_id": 70,
+                    "hbbtv": {
+                        "url": "http://www.example.com/hbbtv/"
+                    }
+                },
+                {
+                    "comment": "CT1 239.9.10.11",
+                    "url": "http://176.102.98.74:1234/udp/239.9.10.11-1234",
+	            "file": "file3.ts",
+                    "mcast": "239.9.10.11:1234",
+                    "source": 2,
+		    "lcn": 92,
+                    "service_id": 131,
+                    "hbbtv": {
+                        "url": "http://www.example.com/hbbtv/"
+                    }
+                },
+                {
+                    "comment": "CT2 HD 239.9.10.2",
+                    "url": "http://176.102.98.74:1234/udp/239.9.10.2-1234",
+		    "file": "file4.ts",
+                    "mcast": "239.9.10.2:1234",
+                    "source": 2,
+                    "lcn": 93,
+                    "service_id": 132,
+                    "hbbtv": {
+                        "url": "http://www.example.com/hbbtv/"
+                    }
+                }
+            ]
+        }
+    ]
+}
